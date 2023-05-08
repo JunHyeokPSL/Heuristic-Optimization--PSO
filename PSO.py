@@ -26,35 +26,42 @@ import matplotlib.pyplot as plt
 import cvxpy as cp
 import tabulate
 import time
+import logging
 
 class PSO(object):
     
     def __init__(self, func, param_dict):
         
         #self.init_pos = param_dict['init_pos']
+        self.gamma = param_dict['gamma']
         self.n_params = param_dict['n_params']
         self.n_particles = param_dict['n_particles']
         self.max_iter = param_dict['max_iter']
         
-        self.c0 = param_dict['c0']
-        self.c1 = param_dict['c1']
+        self.c0 = param_dict['c0'][0:self.n_params]
+        self.c1 = param_dict['c1'][0:self.n_params]
         self.w = param_dict['w']
-        self.xl = param_dict['xl']
-        self.xu = param_dict['xu']
+        self.xl = param_dict['xl'][0:self.n_params]
+        self.xu = param_dict['xu'][0:self.n_params]
         
-        self.vl = param_dict['vl']
-        self.vu = param_dict['vu']
+        self.vl = param_dict['vl'][0:self.n_params]
+        self.vu = param_dict['vu'][0:self.n_params]
         self.count_max = param_dict['count_max']
-        self.init_particle = np.array([gamma*np.random.uniform() for i in range(n_particles)])
-        self.init_vec = np.array([(self.vu-self.vl)*np.random.uniform()+self.vl for i in range(n_particles)])
+        self.init_particle = np.array([[self.gamma[j]*np.random.uniform() + self.xl[j]
+                                        for j in range(self.n_params)] for i in range(self.n_particles)]).round(4)
+        self.init_vec = np.array([[(self.vu[j]-self.vl[j])*np.random.uniform() +self.vl[j] 
+                                   for j in range(self.n_params)] for i in range(self.n_particles)]).round(4)
         
-        self.g_best = self.init_particle[0] # 초기 g_best 설정 고민
+        self.g_best = self.init_particle[0,:] # 초기 g_best 설정 고민
         self.p_best = self.init_particle
         
         self.func = func
-        
-        PSO.optimize(self)
-        
+        try:
+            PSO.optimize(self)
+        except BaseException as e:
+            logging.exception("Optimize Failed")
+            
+            
     def calculate_velocity(self, x, v, p_best, g_best):
         """
             Update particle velocity
@@ -78,7 +85,7 @@ class PSO(object):
         r0 = np.random.uniform()
         r1 = np.random.uniform()
         
-        new_v = self.w*v + self.c0*r0*(p_best - x) + self.c1*r1*(g_best - x)
+        new_v = (self.w*v + self.c0*r0*(p_best - x) + self.c1*r1*(g_best - x)).round(4)
         
         #print("v[0]:", new_v[0])
         #print("velocity = ", new_v)
@@ -94,11 +101,12 @@ class PSO(object):
         # Limit x
         # velocity limit이 아니라, x limit하는 방법이 맞나?
         
-        for i in range(len(new_x)):
-            if new_x[i] < self.xl:
-                new_x[i] = self.xl
-            elif new_x[i] > self.xu:
-                new_x[i] = self.xu
+        new_x = np.clip(new_x, self.xl, self.xu)
+        # for i in range(len(new_x)):
+        #     if new_x[i] < self.xl:
+        #         new_x[i] = self.xl
+        #     elif new_x[i] > self.xu:
+        #         new_x[i] = self.xu
         #print("position = ", new_x )
         
         return new_x
@@ -107,13 +115,13 @@ class PSO(object):
         
         for i in range(self.n_particles):
             
-            f_x = self.func(new_x[i])
-            f_pbest = self.func(p_best[i])
+            f_x = np.round(self.func(new_x[i]),7)
+            f_pbest = np.round(self.func(p_best[i]), 7)
             if f_x < f_pbest:
                 p_best[i] = new_x[i]
                 
                 #print(f"renewable p_best[{i}]:", p_best[i])
-                f_gbest = self.func(g_best)
+                f_gbest = np.round(self.func(g_best),7)
                 if f_x < f_gbest:
                     #print("renewable g_best:", f_gbest)
                     g_best = new_x[i]
@@ -131,7 +139,7 @@ class PSO(object):
         v = np.round(self.init_vec,4)
         while True:
             
-            print(iteration, self.g_best, self.func(self.g_best))
+            print(iteration, count, np.round(self.g_best,4), np.round(self.func(self.g_best),7))
             if iteration % (10**count_print):
                 count_print += 1
                 print('*'*count_print)    
@@ -148,7 +156,7 @@ class PSO(object):
             
             p_best_new, g_best_new = self.evaluate_score(new_x, self.p_best, self.g_best)
             
-            if g_best_new == self.g_best:
+            if (g_best_new == self.g_best).all():
                 count += 1
             else:
                 count = 0
@@ -165,20 +173,21 @@ class PSO(object):
 if __name__ == '__main__':
     
     start = time.time()
-    gamma = 0.1
+    gamma = np.array([0.3,5.0])
     n_particles = 100
     param_dict = {
-        'n_params': 2
+        'n_params': 2,
         'n_particles': n_particles,
         'max_iter': 10000,
         'c0': gamma,
         'c1': gamma,
         'w': 0.9,
-        'xl': 0.0001,
-        'xu': 10.0,
-        'vl': 0.0001,
-        'vu': 0.5,
-        'count_max': 100
+        'xl': np.array([0.001, 2.4]),
+        'xu': np.array([0.5, 10.0]),
+        'vl': np.array([0.0001, 0.001]),
+        'vu': np.array([0.2, 0.5]),
+        'count_max': 50,
+        'gamma':gamma
     }
     
         
@@ -189,13 +198,15 @@ if __name__ == '__main__':
     sys.path.append(path) # 폴더 두 단계 위에서 file import 하기 위해서 sys path 설정  
 
     ## Import the function that optimize   
-    from Lyapunov_SDP_Stability.analyze_stability import lyapunov         
+    from Lyapunov_SDP_Stability.analyze_stability import lyapunov, common_lyapunov, run_time_minimize 
     #from analyze_stability import lyapunov
-    m = PSO(lyapunov, param_dict)
+    #pso = PSO(lyapunov, param_dict)
+    #pso1 = PSO(common_lyapunov, param_dict)
+    pso2 = PSO(run_time_minimize, param_dict)
     end = time.time()
     print("Simulation Time:", end - start)
             
-            
+    
             
             
             
